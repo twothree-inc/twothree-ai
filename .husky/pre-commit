@@ -10,22 +10,28 @@ if [ -n "$STAGED_FE" ]; then
   (cd frontend && npx lint-staged)
 fi
 
-# --- Backend: ruff format + lint on staged .py files ---
+# --- Backend: ruff (prefers local; falls back to standalone Docker image) ---
 if [ -n "$STAGED_BE_PY" ]; then
   echo "→ running ruff on staged backend files"
 
-  # Locate ruff: prefer venv, fall back to PATH.
+  # Paths relative to backend/, since pyproject.toml lives there.
+  REL_FILES=$(echo "$STAGED_BE_PY" | sed 's|^backend/||')
+
   if [ -x backend/.venv/bin/ruff ]; then
-    RUFF=backend/.venv/bin/ruff
+    RUFF="backend/.venv/bin/ruff"
+    PREFIX="backend/"
+    (cd backend && "../$RUFF" format --check $REL_FILES && "../$RUFF" check $REL_FILES)
   elif command -v ruff >/dev/null 2>&1; then
-    RUFF=ruff
+    (cd backend && ruff format --check $REL_FILES && ruff check $REL_FILES)
+  elif command -v docker >/dev/null 2>&1; then
+    # Standalone ruff image — ~10 MB, no Python needed on host.
+    RUFF_IMAGE="ghcr.io/astral-sh/ruff:latest"
+    docker run --rm -v "$PWD/backend:/io" -w /io "$RUFF_IMAGE" format --check $REL_FILES
+    docker run --rm -v "$PWD/backend:/io" -w /io "$RUFF_IMAGE" check $REL_FILES
   else
-    echo "  ✗ ruff not found. Install dev deps: pip install -r backend/requirements-dev.txt"
+    echo "  ✗ no ruff available. Options:"
+    echo "    - install ruff locally:  curl -LsSf https://astral.sh/ruff/install.sh | sh"
+    echo "    - or install Docker (hook will pull ghcr.io/astral-sh/ruff)"
     exit 1
   fi
-
-  # shellcheck disable=SC2086
-  $RUFF format --check $STAGED_BE_PY
-  # shellcheck disable=SC2086
-  $RUFF check $STAGED_BE_PY
 fi

@@ -25,9 +25,6 @@ class Settings(BaseSettings):
 
     database_url: str = Field(default="", alias="DATABASE_URL")
 
-    admin_username: str = Field(default="admin", alias="ADMIN_USERNAME")
-    admin_password: str = Field(default="changeme", alias="ADMIN_PASSWORD")
-
     cors_origins: str = Field(default="http://localhost:3000", alias="CORS_ORIGINS")
 
     @property
