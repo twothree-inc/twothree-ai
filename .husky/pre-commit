@@ -1,0 +1,31 @@
+#!/usr/bin/env sh
+set -e
+
+STAGED_FE=$(git diff --cached --name-only --diff-filter=ACMR | grep '^frontend/' || true)
+STAGED_BE_PY=$(git diff --cached --name-only --diff-filter=ACMR | grep '^backend/.*\.py$' || true)
+
+# --- Frontend: lint-staged (eslint --fix + prettier --write) ---
+if [ -n "$STAGED_FE" ]; then
+  echo "→ running frontend lint-staged"
+  (cd frontend && npx lint-staged)
+fi
+
+# --- Backend: ruff format + lint on staged .py files ---
+if [ -n "$STAGED_BE_PY" ]; then
+  echo "→ running ruff on staged backend files"
+
+  # Locate ruff: prefer venv, fall back to PATH.
+  if [ -x backend/.venv/bin/ruff ]; then
+    RUFF=backend/.venv/bin/ruff
+  elif command -v ruff >/dev/null 2>&1; then
+    RUFF=ruff
+  else
+    echo "  ✗ ruff not found. Install dev deps: pip install -r backend/requirements-dev.txt"
+    exit 1
+  fi
+
+  # shellcheck disable=SC2086
+  $RUFF format --check $STAGED_BE_PY
+  # shellcheck disable=SC2086
+  $RUFF check $STAGED_BE_PY
+fi

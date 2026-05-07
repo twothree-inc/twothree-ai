@@ -20,12 +20,23 @@ twothree-ai/
 # 1. Copy env template and fill in secrets
 cp .env.example .env
 
-# 2. Start both services
+# 2. Install root deps (sets up husky git hooks)
+npm install
+
+# 3. Install frontend deps
+npm --prefix frontend install
+
+# 4. Start both services
 docker compose up --build
 
 # Backend: http://localhost:8000  (docs at /docs)
 # Frontend: http://localhost:3000
 ```
+
+> The git hook is wired at the repo root (`.husky/pre-commit`). Husky's
+> `prepare` script runs on `npm install` at the root and points
+> `core.hooksPath` to `.husky`. The hook delegates to
+> `frontend`'s `lint-staged` when frontend files are staged.
 
 ### Backend (without Docker)
 

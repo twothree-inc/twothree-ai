@@ -1,0 +1,13 @@
+{
+  "name": "twothree-ai",
+  "private": true,
+  "description": "Monorepo root — only here to host the shared git hook (husky).",
+  "scripts": {
+    "prepare": "husky",
+    "lint:fe": "npm --prefix frontend run lint",
+    "format:fe": "npm --prefix frontend run format"
+  },
+  "devDependencies": {
+    "husky": "^9.0.0"
+  }
+}
