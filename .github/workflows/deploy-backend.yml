@@ -66,12 +66,9 @@ jobs:
           cache-to: type=gha,scope=backend,mode=max
 
       - name: Run Alembic migrations
-<<<<<<< Updated upstream
-=======
         # Skip until alembic.ini exists. Once you bootstrap alembic
         # (per spec.md), this step starts running automatically.
         if: hashFiles('backend/alembic.ini') != ''
->>>>>>> Stashed changes
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
