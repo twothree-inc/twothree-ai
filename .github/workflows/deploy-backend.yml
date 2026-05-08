@@ -1,0 +1,127 @@
+name: Deploy Backend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false
+
+env:
+  GCP_REGION: asia-northeast1
+  AR_REPO: line-bot
+  SERVICE_NAME: line-bot-backend
+  IMAGE_NAME: backend
+
+jobs:
+  deploy:
+    name: Build, migrate, deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        id: auth
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          echo "image=${GCP_REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${AR_REPO}/${IMAGE_NAME}:${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "latest=${GCP_REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${AR_REPO}/${IMAGE_NAME}:latest" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./backend
+          file: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ steps.tag.outputs.image }}
+            ${{ steps.tag.outputs.latest }}
+          cache-from: type=gha,scope=backend
+          cache-to: type=gha,scope=backend,mode=max
+
+      - name: Run Alembic migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
+          cd backend && alembic upgrade head
+
+      - name: Write env vars file from GitHub secrets
+        env:
+          CLAUDE_CLASSIFIER_MODEL: ${{ secrets.CLAUDE_CLASSIFIER_MODEL }}
+          CLAUDE_SIMPLE_MODEL: ${{ secrets.CLAUDE_SIMPLE_MODEL }}
+          CLAUDE_MODEL: ${{ secrets.CLAUDE_MODEL }}
+          LINE_CHANNEL_ACCESS_TOKEN: ${{ secrets.LINE_CHANNEL_ACCESS_TOKEN }}
+          LINE_CHANNEL_SECRET: ${{ secrets.LINE_CHANNEL_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          python - <<'PY' > env-vars.yaml
+          import json, os, sys
+          keys = [
+              "CLAUDE_CLASSIFIER_MODEL", "CLAUDE_SIMPLE_MODEL", "CLAUDE_MODEL",
+              "LINE_CHANNEL_ACCESS_TOKEN", "LINE_CHANNEL_SECRET",
+              "ANTHROPIC_API_KEY", "DATABASE_URL",
+          ]
+          missing = [k for k in keys if not os.environ.get(k)]
+          if missing:
+              sys.stderr.write(f"Missing GitHub secrets: {', '.join(missing)}\n")
+              sys.exit(1)
+          for k in keys:
+              # JSON-encode to safely quote any value (handles :, @, /, ", etc.)
+              print(f"{k}: {json.dumps(os.environ[k])}")
+          PY
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE_NAME" \
+            --image="${{ steps.tag.outputs.image }}" \
+            --region="$GCP_REGION" \
+            --platform=managed \
+            --allow-unauthenticated \
+            --memory=512Mi \
+            --cpu=1 \
+            --min-instances=0 \
+            --max-instances=3 \
+            --concurrency=80 \
+            --port=8000 \
+            --env-vars-file=env-vars.yaml
+
+      - name: Clean up env vars file
+        if: always()
+        run: rm -f env-vars.yaml
+
+      - name: Show service URL
+        run: |
+          URL=$(gcloud run services describe "$SERVICE_NAME" --region="$GCP_REGION" --format='value(status.url)')
+          echo "Backend deployed: $URL"
+          echo "### Backend deployed" >> $GITHUB_STEP_SUMMARY
+          echo "URL: $URL" >> $GITHUB_STEP_SUMMARY
+          echo "Image: ${{ steps.tag.outputs.image }}" >> $GITHUB_STEP_SUMMARY

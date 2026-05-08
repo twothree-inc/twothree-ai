@@ -30,6 +30,9 @@ dist/
 *.tsbuildinfo
 next-env.d.ts
 
+# Frontend is a single package, not a pnpm workspace — don't track this file
+frontend/pnpm-workspace.yaml
+
 # Logs
 *.log
 npm-debug.log*
