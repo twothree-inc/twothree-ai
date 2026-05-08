@@ -1,0 +1,113 @@
+name: Deploy Frontend
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+    inputs:
+      backend_url:
+        description: 'Override backend URL baked into the build (NEXT_PUBLIC_API_URL). Leave blank to auto-discover.'
+        required: false
+        type: string
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false
+
+env:
+  GCP_REGION: asia-northeast1
+  AR_REPO: line-bot
+  SERVICE_NAME: line-bot-frontend
+  IMAGE_NAME: frontend
+  BACKEND_SERVICE_NAME: line-bot-backend
+
+jobs:
+  deploy:
+    name: Build and deploy
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.GCP_REGION }}-docker.pkg.dev --quiet
+
+      - name: Resolve backend URL
+        id: backend
+        run: |
+          if [ -n "${{ inputs.backend_url }}" ]; then
+            URL="${{ inputs.backend_url }}"
+          else
+            URL=$(gcloud run services describe "$BACKEND_SERVICE_NAME" \
+              --region="$GCP_REGION" \
+              --format='value(status.url)' 2>/dev/null || true)
+          fi
+          if [ -z "$URL" ]; then
+            echo "::error::Could not resolve backend URL. Deploy backend first or pass backend_url via workflow_dispatch."
+            exit 1
+          fi
+          echo "url=$URL" >> $GITHUB_OUTPUT
+          echo "Backend URL: $URL"
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          echo "image=${GCP_REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${AR_REPO}/${IMAGE_NAME}:${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "latest=${GCP_REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/${AR_REPO}/${IMAGE_NAME}:latest" >> $GITHUB_OUTPUT
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ steps.backend.outputs.url }}
+          tags: |
+            ${{ steps.tag.outputs.image }}
+            ${{ steps.tag.outputs.latest }}
+          cache-from: type=gha,scope=frontend
+          cache-to: type=gha,scope=frontend,mode=max
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "$SERVICE_NAME" \
+            --image="${{ steps.tag.outputs.image }}" \
+            --region="$GCP_REGION" \
+            --platform=managed \
+            --allow-unauthenticated \
+            --memory=256Mi \
+            --cpu=1 \
+            --min-instances=0 \
+            --max-instances=2 \
+            --port=3000 \
+            --set-env-vars="NEXT_PUBLIC_API_URL=${{ steps.backend.outputs.url }}"
+
+      - name: Show service URL
+        run: |
+          URL=$(gcloud run services describe "$SERVICE_NAME" --region="$GCP_REGION" --format='value(status.url)')
+          echo "Frontend deployed: $URL"
+          echo "### Frontend deployed" >> $GITHUB_STEP_SUMMARY
+          echo "URL: $URL" >> $GITHUB_STEP_SUMMARY
+          echo "Backend baked in: ${{ steps.backend.outputs.url }}" >> $GITHUB_STEP_SUMMARY
+          echo "Image: ${{ steps.tag.outputs.image }}" >> $GITHUB_STEP_SUMMARY
