@@ -16,14 +16,25 @@ const SOURCE_COLORS: Record<Source, BadgeColor> = {
   simulation: 'gray',
 };
 
+// Use Intl with an explicit timezone so the server (UTC) and the
+// browser (whatever the user's locale) render the same string —
+// otherwise React hydration fails. sv-SE happens to format as
+// "YYYY-MM-DD HH:mm:ss" which is what we want.
+const TS_FORMATTER = new Intl.DateTimeFormat('sv-SE', {
+  timeZone: 'Asia/Tokyo',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false,
+});
+
 function formatTimestamp(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
-  const pad = (n: number) => String(n).padStart(2, '0');
-  return (
-    `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ` +
-    `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-  );
+  return TS_FORMATTER.format(d);
 }
 
 function truncate(text: string | null, max: number): string {
@@ -41,7 +52,7 @@ export function LogsTable({ logs }: { logs: RequestLog[] }) {
   if (logs.length === 0) {
     return (
       <div className="rounded-lg border border-dashed border-gray-300 bg-white p-12 text-center">
-        <p className="text-sm text-gray-500">No logs yet.</p>
+        <p className="text-sm text-gray-500">ログはまだありません</p>
       </div>
     );
   }
@@ -50,17 +61,17 @@ export function LogsTable({ logs }: { logs: RequestLog[] }) {
     <div className="overflow-x-auto rounded-lg border border-gray-200 bg-white">
       <table className="min-w-full divide-y divide-gray-200 text-sm">
         <thead className="bg-gray-50">
-          <tr className="text-left text-xs font-medium uppercase tracking-wide text-gray-500">
-            <th className="px-4 py-3">Timestamp</th>
-            <th className="px-4 py-3">Source</th>
-            <th className="px-4 py-3">Route</th>
-            <th className="px-4 py-3">Message</th>
-            <th className="px-4 py-3">Model</th>
-            <th className="px-4 py-3 text-right">Input tokens</th>
-            <th className="px-4 py-3 text-right">Output tokens</th>
-            <th className="px-4 py-3 text-right">Cost</th>
-            <th className="px-4 py-3 text-right">Time</th>
-            <th className="px-4 py-3">Status</th>
+          <tr className="text-left text-xs font-medium tracking-wide text-gray-500">
+            <th className="px-4 py-3">日時</th>
+            <th className="px-4 py-3">送信元</th>
+            <th className="px-4 py-3">ルート</th>
+            <th className="px-4 py-3">メッセージ</th>
+            <th className="px-4 py-3">モデル</th>
+            <th className="px-4 py-3 text-right">入力トークン</th>
+            <th className="px-4 py-3 text-right">出力トークン</th>
+            <th className="px-4 py-3 text-right">コスト</th>
+            <th className="px-4 py-3 text-right">処理時間</th>
+            <th className="px-4 py-3">ステータス</th>
           </tr>
         </thead>
         <tbody className="divide-y divide-gray-100">
@@ -102,11 +113,11 @@ export function LogsTable({ logs }: { logs: RequestLog[] }) {
                   <td className="px-4 py-3">
                     {log.error ? (
                       <span className="inline-flex items-center gap-1.5 text-sm text-red-700">
-                        <span className="h-2 w-2 rounded-full bg-red-500" /> Error
+                        <span className="h-2 w-2 rounded-full bg-red-500" /> エラー
                       </span>
                     ) : (
                       <span className="inline-flex items-center gap-1.5 text-sm text-green-700">
-                        <span className="h-2 w-2 rounded-full bg-green-500" /> OK
+                        <span className="h-2 w-2 rounded-full bg-green-500" /> 正常
                       </span>
                     )}
                   </td>
@@ -116,15 +127,15 @@ export function LogsTable({ logs }: { logs: RequestLog[] }) {
                     <td colSpan={10} className="px-4 py-4">
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <div>
-                          <p className="text-xs font-semibold uppercase text-gray-500">Message</p>
+                          <p className="text-xs font-semibold text-gray-500">メッセージ</p>
                           <pre className="mt-1 whitespace-pre-wrap rounded border border-gray-200 bg-white p-3 text-xs text-gray-800">
-                            {log.message_text || '(empty)'}
+                            {log.message_text || '(空)'}
                           </pre>
                         </div>
                         <div>
-                          <p className="text-xs font-semibold uppercase text-gray-500">Response</p>
+                          <p className="text-xs font-semibold text-gray-500">応答</p>
                           <pre className="mt-1 whitespace-pre-wrap rounded border border-gray-200 bg-white p-3 text-xs text-gray-800">
-                            {log.error ?? log.response_text ?? '(empty)'}
+                            {log.error ?? log.response_text ?? '(空)'}
                           </pre>
                         </div>
                       </div>

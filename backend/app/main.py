@@ -1,14 +1,18 @@
+import logging
 from datetime import datetime
 
-from fastapi import Depends, FastAPI, Query
+from fastapi import Depends, FastAPI, Header, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from pydantic import BaseModel
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app import crud
+from app import crud, line_client
 from app.config import get_settings
 from app.database import get_db
+
+logger = logging.getLogger(__name__)
 
 settings = get_settings()
 
@@ -79,4 +83,50 @@ async def list_logs(
         total=total,
         page=page,
         per_page=per_page,
+    )
+
+
+@app.post("/webhook")
+async def webhook(
+    request: Request,
+    x_line_signature: str = Header(..., alias="X-Line-Signature"),
+) -> dict[str, str]:
+    """LINE Messaging API webhook.
+
+    Always returns 200 so LINE does not retry on transient errors.
+    For now this just echoes the user's text back — LLM routing will
+    replace this echo later.
+    """
+    body_bytes = await request.body()
+    body = body_bytes.decode("utf-8")
+
+    try:
+        events = line_client.parse_events(body, x_line_signature)
+    except line_client.InvalidSignatureError:
+        logger.warning("LINE webhook signature mismatch")
+        return {"status": "invalid_signature"}
+
+    for event in events:
+        try:
+            await _handle_event(event)
+        except Exception:
+            logger.exception("Failed to handle LINE event")
+
+    return {"status": "ok"}
+
+
+async def _handle_event(event: object) -> None:
+    if not isinstance(event, MessageEvent):
+        return
+
+    reply_token = event.reply_token
+
+    if isinstance(event.message, TextMessageContent):
+        user_text = event.message.text
+        await line_client.reply_text(reply_token, f"Echo: {user_text}")
+        return
+
+    await line_client.reply_text(
+        reply_token,
+        "I can only handle text messages for now.",
     )

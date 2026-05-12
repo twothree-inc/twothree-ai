@@ -23,10 +23,10 @@ export default async function LogsPage({ searchParams }: { searchParams: { page?
   } catch (e) {
     error =
       e instanceof ApiError
-        ? `API error ${e.status}: ${e.message}`
+        ? `API エラー ${e.status}: ${e.message}`
         : e instanceof Error
           ? e.message
-          : 'Unknown error';
+          : '不明なエラー';
   }
 
   const totalPages = data ? Math.max(Math.ceil(data.total / data.per_page), 1) : 1;
@@ -35,16 +35,16 @@ export default async function LogsPage({ searchParams }: { searchParams: { page?
     <div className="space-y-4">
       <div className="flex items-end justify-between">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900">Request logs</h2>
+          <h2 className="text-xl font-semibold text-gray-900">リクエストログ</h2>
           <p className="mt-1 text-sm text-gray-600">
-            {data ? `${data.total.toLocaleString()} total requests` : 'Loading…'}
+            {data ? `全 ${data.total.toLocaleString()} 件` : '読み込み中…'}
           </p>
         </div>
       </div>
 
       {error ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-800">
-          <p className="font-medium">Could not load logs</p>
+          <p className="font-medium">ログを読み込めませんでした</p>
           <p className="mt-1 font-mono text-xs">{error}</p>
         </div>
       ) : data ? (
