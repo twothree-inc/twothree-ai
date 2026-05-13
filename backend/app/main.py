@@ -5,7 +5,6 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 from pydantic import BaseModel
-from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crud, line_client
@@ -48,21 +47,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
-
-
-@app.get("/health/db")
-async def health_db(db: AsyncSession = Depends(get_db)) -> dict[str, object]:
-    try:
-        result = await db.execute(text("SELECT 1"))
-        value = result.scalar_one()
-        return {"status": "ok", "select_1": value}
-    except Exception as exc:
-        return {"status": "error", "error": str(exc)}
 
 
 class RequestLogOut(BaseModel):
@@ -178,8 +162,7 @@ async def _handle_event(event: object) -> None:
     reply_token = event.reply_token
 
     if isinstance(event.message, TextMessageContent):
-        user_text = event.message.text
-        await line_client.reply_text(reply_token, f"Echo: {user_text}")
+        await line_client.reply_text(reply_token, event.message.text)
         return
 
     await line_client.reply_text(

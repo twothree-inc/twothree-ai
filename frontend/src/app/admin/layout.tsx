@@ -1,8 +1,6 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
 
-import { HealthStatus } from '@/components/admin/HealthStatus';
-
 export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-screen bg-gray-50">
@@ -12,7 +10,6 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
             LINE Bot 管理画面
           </Link>
           <div className="flex items-center gap-5">
-            <HealthStatus />
             <Link
               href="/admin/chat"
               title="チャット"
