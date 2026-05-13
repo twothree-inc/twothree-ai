@@ -21,29 +21,33 @@ export function Pagination({
         : 'border-gray-300 text-gray-700 hover:bg-gray-50'
     }`;
 
+  // basePath may already contain a query string (e.g. ?from=...&to=...) —
+  // use the right separator before appending page.
+  const sep = basePath.includes('?') ? '&' : '?';
+
   return (
     <div className="flex items-center justify-between gap-3">
       <p className="text-sm text-gray-600">
-        Page <span className="font-medium">{page}</span> of{' '}
-        <span className="font-medium">{Math.max(totalPages, 1)}</span>
+        <span className="font-medium">{page}</span> /{' '}
+        <span className="font-medium">{Math.max(totalPages, 1)}</span> ページ
       </p>
       <div className="flex gap-2">
         {prevDisabled ? (
           <span className={linkClass(true)} aria-disabled="true">
-            Previous
+            前へ
           </span>
         ) : (
-          <Link href={`${basePath}?page=${page - 1}`} className={linkClass(false)}>
-            Previous
+          <Link href={`${basePath}${sep}page=${page - 1}`} className={linkClass(false)}>
+            前へ
           </Link>
         )}
         {nextDisabled ? (
           <span className={linkClass(true)} aria-disabled="true">
-            Next
+            次へ
           </span>
         ) : (
-          <Link href={`${basePath}?page=${page + 1}`} className={linkClass(false)}>
-            Next
+          <Link href={`${basePath}${sep}page=${page + 1}`} className={linkClass(false)}>
+            次へ
           </Link>
         )}
       </div>

@@ -26,4 +26,5 @@ export interface PaginatedLogs {
   total: number;
   page: number;
   per_page: number;
+  total_cost_usd: number;
 }
