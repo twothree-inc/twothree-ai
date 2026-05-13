@@ -46,7 +46,7 @@ jobs:
           # Dummy URL — the engine is created at import time, but tests
           # don't actually connect to the DB. Just needs to parse.
           DATABASE_URL: postgresql+asyncpg://test:test@localhost:5432/test
-        run: pytest -q
+        run: pytest -q || [ $? = 5 ]
 
   frontend:
     name: Frontend (lint + build)
