@@ -1,9 +1,18 @@
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import RequestLog
+
+
+async def insert_log(db: AsyncSession, data: dict[str, Any]) -> RequestLog:
+    row = RequestLog(**data)
+    db.add(row)
+    await db.commit()
+    await db.refresh(row)
+    return row
 
 
 def _apply_range(stmt: Select, from_dt: datetime | None, to_dt: datetime | None) -> Select:

@@ -32,10 +32,25 @@ class Settings(BaseSettings):
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
 
 
-HAIKU_INPUT_PRICE = 1.00 / 1_000_000
-HAIKU_OUTPUT_PRICE = 5.00 / 1_000_000
-SONNET_INPUT_PRICE = 3.00 / 1_000_000
-SONNET_OUTPUT_PRICE = 15.00 / 1_000_000
+SIMPLE_INPUT_PRICE = 1.00 / 1_000_000
+SIMPLE_OUTPUT_PRICE = 5.00 / 1_000_000
+COMPLEX_INPUT_PRICE = 3.00 / 1_000_000
+COMPLEX_OUTPUT_PRICE = 15.00 / 1_000_000
+
+
+def calculate_cost(
+    classifier_in: int,
+    classifier_out: int,
+    response_in: int,
+    response_out: int,
+    response_model: str,
+) -> float:
+    classifier_cost = classifier_in * SIMPLE_INPUT_PRICE + classifier_out * SIMPLE_OUTPUT_PRICE
+    if "haiku" in response_model.lower():
+        response_cost = response_in * SIMPLE_INPUT_PRICE + response_out * SIMPLE_OUTPUT_PRICE
+    else:
+        response_cost = response_in * COMPLEX_INPUT_PRICE + response_out * COMPLEX_OUTPUT_PRICE
+    return classifier_cost + response_cost
 
 
 @lru_cache
