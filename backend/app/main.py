@@ -1,5 +1,7 @@
 import logging
+import time as time_module
 from datetime import date, datetime, time, timedelta, timezone
+from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,8 +10,9 @@ from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import crud, line_client
+from app import router as router_module
 from app.config import get_settings
-from app.database import get_db
+from app.database import SessionLocal, get_db
 
 # Date-range filters in /api/logs are interpreted in JST: the user picks
 # calendar days in their local timezone, we convert to absolute datetimes.
@@ -111,19 +114,87 @@ class ChatRequest(BaseModel):
 
 class ChatResponse(BaseModel):
     response: str
+    route_label: str
+    cost_usd: float
+    response_time_ms: int
+
+
+_FRIENDLY_ERROR = "申し訳ありません。エラーが発生しました。少し時間をおいて再度お試しください。"
+
+
+def _build_log_row(
+    *,
+    source: str,
+    user_id: str,
+    message_text: str,
+    response_text: str,
+    response_time_ms: int,
+    error: str | None,
+    result: router_module.RouteResult | None,
+) -> dict[str, Any]:
+    return {
+        "source": source,
+        "user_id": user_id,
+        "message_text": message_text[:1000] if message_text else None,
+        "attachment_type": None,
+        "route_label": result.route_label if result else "ERROR",
+        "classifier_model": result.classifier_model if result else "",
+        "response_model": result.response_model if result else "",
+        "classifier_input_tokens": result.classifier_input_tokens if result else 0,
+        "classifier_output_tokens": result.classifier_output_tokens if result else 0,
+        "response_input_tokens": result.response_input_tokens if result else 0,
+        "response_output_tokens": result.response_output_tokens if result else 0,
+        "total_cost_usd": result.total_cost_usd if result else 0.0,
+        "response_time_ms": response_time_ms,
+        "response_text": response_text[:2000] if response_text else None,
+        "error": error,
+    }
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat(req: ChatRequest) -> ChatResponse:
-    """Admin chat endpoint — same logic as the LINE handler.
-
-    For now just echoes; will route through the classifier + handlers
-    once those are built.
-    """
+async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatResponse:
+    """Admin chat endpoint — runs the two-stage router and logs to DB."""
     user_text = req.message.strip()
     if not user_text:
-        return ChatResponse(response="(空のメッセージ)")
-    return ChatResponse(response=f"Echo: {user_text}")
+        return ChatResponse(
+            response="(空のメッセージ)", route_label="SKIP", cost_usd=0.0, response_time_ms=0
+        )
+
+    started = time_module.perf_counter()
+    error_msg: str | None = None
+    result: router_module.RouteResult | None = None
+    try:
+        result = await router_module.route(user_text, has_attachment=False)
+        response_text = result.response_text or "(no response)"
+    except Exception as exc:
+        logger.exception("Router failed for /api/chat")
+        error_msg = str(exc)[:500]
+        response_text = _FRIENDLY_ERROR
+
+    elapsed_ms = int((time_module.perf_counter() - started) * 1000)
+
+    try:
+        await crud.insert_log(
+            db,
+            _build_log_row(
+                source="simulation",
+                user_id="simulation",
+                message_text=user_text,
+                response_text=response_text,
+                response_time_ms=elapsed_ms,
+                error=error_msg,
+                result=result,
+            ),
+        )
+    except Exception:
+        logger.exception("Failed to insert request log for /api/chat")
+
+    return ChatResponse(
+        response=response_text,
+        route_label=result.route_label if result else "ERROR",
+        cost_usd=result.total_cost_usd if result else 0.0,
+        response_time_ms=elapsed_ms,
+    )
 
 
 @app.post("/webhook")
@@ -134,8 +205,6 @@ async def webhook(
     """LINE Messaging API webhook.
 
     Always returns 200 so LINE does not retry on transient errors.
-    For now this just echoes the user's text back — LLM routing will
-    replace this echo later.
     """
     body_bytes = await request.body()
     body = body_bytes.decode("utf-8")
@@ -161,11 +230,48 @@ async def _handle_event(event: object) -> None:
 
     reply_token = event.reply_token
 
-    if isinstance(event.message, TextMessageContent):
-        await line_client.reply_text(reply_token, event.message.text)
+    if not isinstance(event.message, TextMessageContent):
+        await line_client.reply_text(
+            reply_token,
+            "I can only handle text messages for now.",
+        )
         return
 
-    await line_client.reply_text(
-        reply_token,
-        "I can only handle text messages for now.",
-    )
+    user_text = event.message.text
+    user_id = getattr(event.source, "user_id", None) or "unknown"
+
+    started = time_module.perf_counter()
+    error_msg: str | None = None
+    result: router_module.RouteResult | None = None
+    try:
+        result = await router_module.route(user_text, has_attachment=False)
+        response_text = result.response_text or "(no response)"
+    except Exception as exc:
+        logger.exception("Router failed for LINE event")
+        error_msg = str(exc)[:500]
+        response_text = _FRIENDLY_ERROR
+
+    elapsed_ms = int((time_module.perf_counter() - started) * 1000)
+
+    # Reply first, log second — if the DB write fails we still answered the user.
+    try:
+        await line_client.reply_text(reply_token, response_text)
+    except Exception:
+        logger.exception("LINE reply failed")
+
+    try:
+        async with SessionLocal() as session:
+            await crud.insert_log(
+                session,
+                _build_log_row(
+                    source="line",
+                    user_id=user_id,
+                    message_text=user_text,
+                    response_text=response_text,
+                    response_time_ms=elapsed_ms,
+                    error=error_msg,
+                    result=result,
+                ),
+            )
+    except Exception:
+        logger.exception("Failed to insert request log for LINE event")
