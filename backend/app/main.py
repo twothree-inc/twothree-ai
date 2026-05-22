@@ -3,6 +3,7 @@ import time as time_module
 from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 
+from anthropic import APIStatusError
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
@@ -120,6 +121,14 @@ class ChatResponse(BaseModel):
 
 
 _FRIENDLY_ERROR = "申し訳ありません。エラーが発生しました。少し時間をおいて再度お試しください。"
+_OVERLOADED_ERROR = "AI サービスが現在混み合っています。少し時間をおいて再度お試しください。"
+
+
+def _user_message_for_exception(exc: BaseException) -> str:
+    """Map an exception to the message we show the end user."""
+    if isinstance(exc, APIStatusError) and exc.status_code == 529:
+        return _OVERLOADED_ERROR
+    return _FRIENDLY_ERROR
 
 
 def _build_log_row(
@@ -169,7 +178,7 @@ async def chat(req: ChatRequest, db: AsyncSession = Depends(get_db)) -> ChatResp
     except Exception as exc:
         logger.exception("Router failed for /api/chat")
         error_msg = str(exc)[:500]
-        response_text = _FRIENDLY_ERROR
+        response_text = _user_message_for_exception(exc)
 
     elapsed_ms = int((time_module.perf_counter() - started) * 1000)
 
@@ -249,7 +258,7 @@ async def _handle_event(event: object) -> None:
     except Exception as exc:
         logger.exception("Router failed for LINE event")
         error_msg = str(exc)[:500]
-        response_text = _FRIENDLY_ERROR
+        response_text = _user_message_for_exception(exc)
 
     elapsed_ms = int((time_module.perf_counter() - started) * 1000)
 
