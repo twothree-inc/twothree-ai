@@ -6,7 +6,7 @@ from app.config import get_settings
 
 settings = get_settings()
 
-_client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+_client = AsyncAnthropic(api_key=settings.anthropic_api_key, max_retries=5)
 
 _SYSTEM_PROMPT = (
     "You are a friendly LINE chat assistant. Reply in plain text only — LINE does "
